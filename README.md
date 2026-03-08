@@ -22,7 +22,7 @@ Nothing is lost. Raw messages stay in the database. Summaries link back to their
 
 ### Prerequisites
 
-- OpenClaw with context engine support (josh/context-engine branch or equivalent)
+- OpenClaw with plugin context engine support
 - Node.js 22+
 - An LLM provider configured in OpenClaw (used for summarization)
 
@@ -243,7 +243,12 @@ Add a `lossless-claw` entry under `plugins.entries` in your OpenClaw config:
   "plugins": {
     "entries": {
       "lossless-claw": {
-        "enabled": true
+        "enabled": true,
+        "config": {
+          "freshTailCount": 32,
+          "contextThreshold": 0.75,
+          "incrementalMaxDepth": -1
+        }
       }
     }
   }
@@ -267,9 +272,12 @@ Add a `lossless-claw` entry under `plugins.entries` in your OpenClaw config:
 | `LCM_CONDENSED_TARGET_TOKENS` | `2000` | Target token count for condensed summaries |
 | `LCM_MAX_EXPAND_TOKENS` | `4000` | Token cap for sub-agent expansion queries |
 | `LCM_LARGE_FILE_TOKEN_THRESHOLD` | `25000` | File blocks above this size are intercepted and stored separately |
+| `LCM_LARGE_FILE_SUMMARY_PROVIDER` | `""` | Provider override for large-file summarization |
+| `LCM_LARGE_FILE_SUMMARY_MODEL` | `""` | Model override for large-file summarization |
 | `LCM_SUMMARY_MODEL` | *(from OpenClaw)* | Model for summarization (e.g. `anthropic/claude-sonnet-4-20250514`) |
 | `LCM_SUMMARY_PROVIDER` | *(from OpenClaw)* | Provider override for summarization |
-| `LCM_INCREMENTAL_MAX_DEPTH` | `0` | Depth limit for incremental condensation after leaf passes (-1 = unlimited) |
+| `LCM_AUTOCOMPACT_DISABLED` | `false` | Disable automatic compaction after turns |
+| `LCM_PRUNE_HEARTBEAT_OK` | `false` | Retroactively delete `HEARTBEAT_OK` turn cycles from LCM storage |
 
 ### Recommended starting configuration
 
