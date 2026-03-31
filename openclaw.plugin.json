@@ -111,6 +111,11 @@
       },
       "expansionProvider": {
         "type": "string"
+      },
+      "leafChunkTokens": {
+        "type": "integer",
+        "minimum": 1000,
+        "description": "Max source tokens per leaf compaction chunk (default 20000)"
       }
     }
   }
