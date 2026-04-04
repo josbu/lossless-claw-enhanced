@@ -1,5 +1,7 @@
 # Configuration guide
 
+中文版本: [configuration.zh-CN.md](configuration.zh-CN.md)
+
 ## Quick start
 
 Install the plugin with OpenClaw's plugin installer:
@@ -17,10 +19,13 @@ pnpm openclaw plugins install @martian-engineering/lossless-claw
 For local development of this plugin, link your working copy:
 
 ```bash
-openclaw plugins install --link /path/to/lossless-claw
+cd /path/to/lossless-claw
+npm install
+openclaw plugins install --link .
 ```
 
 `openclaw plugins install` handles plugin registration/enabling and slot selection automatically.
+For `--link` installs, make sure dependencies are installed in the working copy first.
 
 Set recommended environment variables:
 

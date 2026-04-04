@@ -4,6 +4,8 @@
 
 Lossless Context Management plugin for [OpenClaw](https://github.com/openclaw/openclaw), based on the [LCM paper](https://papers.voltropy.com/LCM) from [Voltropy](https://x.com/Voltropy). Replaces OpenClaw's built-in sliding-window compaction with a DAG-based summarization system that preserves every message while keeping active context within model token limits.
 
+中文配置文档: [docs/configuration.zh-CN.md](docs/configuration.zh-CN.md)
+
 ## Video Tutorial
 
 > Full walkthrough: installation, configuration, and hybrid retrieval internals.
@@ -67,11 +69,16 @@ All cherry-picks were reviewed by OpenAI Codex with 3 additional fixes applied:
 ```bash
 # Clone and install (link mode — picks up code changes instantly)
 git clone https://github.com/win4r/lossless-claw-enhanced.git
-openclaw plugins install --link ./lossless-claw-enhanced
+cd lossless-claw-enhanced
+npm install
+openclaw plugins install --link .
 
 # Or copy install (snapshot, won't pick up later changes)
 openclaw plugins install ./lossless-claw-enhanced
 ```
+
+`--link` mode does not install this plugin's npm dependencies for you, so run
+`npm install` in the plugin directory first on a fresh clone.
 
 ### Configure OpenClaw
 
