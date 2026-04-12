@@ -61,7 +61,7 @@ export function estimateTokens(text: string): number {
 
   // Supplementary chars consume 2 code units each in String.length
   const supplementaryCodeUnits = supplementaryCount * 2;
-  const nonSpecialCount = text.length - cjkCount - supplementaryCodeUnits;
+  const nonSpecialCount = Math.max(0, text.length - cjkCount - supplementaryCodeUnits);
 
   const tokens =
     cjkCount * CJK_TOKENS_PER_CHAR +

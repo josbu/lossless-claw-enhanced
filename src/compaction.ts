@@ -131,7 +131,7 @@ function generateSummaryId(content: string): string {
   return (
     "sum_" +
     createHash("sha256")
-      .update(content + Date.now().toString())
+      .update(content)
       .digest("hex")
       .slice(0, 16)
   );
