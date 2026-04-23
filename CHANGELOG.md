@@ -1,5 +1,11 @@
 # @martian-engineering/lossless-claw
 
+## 0.5.3
+
+### Patch Changes
+
+- [#22](https://github.com/win4r/lossless-claw-enhanced/pull/22) [`d224b68`](https://github.com/win4r/lossless-claw-enhanced/commit/d224b68a797cb0f196896d9076fc9ef8cdfc6356) Thanks [@AliceLJY](https://github.com/AliceLJY)! - Use OpenClaw runtime-ready model auth for summarization requests so managed auth providers work correctly.
+
 ## 0.5.2
 
 ### Patch Changes
