@@ -727,6 +727,48 @@ describe("LcmContextEngine stateless sessions", () => {
     ).toBe(3);
   });
 
+  // Regression: upstream issue #23 — seq 137 (empty-content assistant, undefined
+  // stopReason) was duplicated 72x in a single session. The old guard only
+  // caught stopReason=error|aborted, so stream-interrupted empties slipped
+  // through and accumulated via the dedup bail path.
+  it("skips ingest for empty-content assistant messages regardless of stopReason", async () => {
+    const engine = createEngine();
+    const sessionId = randomUUID();
+
+    await engine.ingest({
+      sessionId,
+      message: makeMessage({ role: "user", content: "ping" }),
+    });
+
+    const emptyArray = await engine.ingest({
+      sessionId,
+      message: {
+        role: "assistant" as AgentMessage["role"],
+        content: [],
+        timestamp: Date.now(),
+      } as AgentMessage,
+    });
+    expect(emptyArray).toEqual({ ingested: false });
+
+    const emptyString = await engine.ingest({
+      sessionId,
+      message: {
+        role: "assistant" as AgentMessage["role"],
+        content: "",
+        timestamp: Date.now(),
+      } as AgentMessage,
+    });
+    expect(emptyString).toEqual({ ingested: false });
+
+    const conversation = await engine
+      .getConversationStore()
+      .getConversationBySessionId(sessionId);
+    expect(conversation).not.toBeNull();
+    expect(
+      await engine.getConversationStore().getMessageCount(conversation!.conversationId),
+    ).toBe(1);
+  });
+
   it("allows assemble reads for stateless session keys", async () => {
     const engine = createEngineWithConfig({
       statelessSessionPatterns: ["agent:*:subagent:worker-*"],
@@ -939,7 +981,7 @@ describe("LcmContextEngine.ingest content extraction", () => {
     const content = await ingestAndReadStoredContent({
       engine,
       sessionId,
-      message: makeMessage({ content: [] }),
+      message: makeMessage({ role: "user", content: [] }),
     });
 
     expect(content).toBe("");
@@ -2890,6 +2932,64 @@ describe("LcmContextEngine fidelity and token budget", () => {
       "new question",
       "new answer",
     ]);
+  });
+
+  // Regression: upstream issue #23. When deduplicateAfterTurnBatch bails
+  // (prefix mismatch — e.g. trailing-whitespace drift on a user turn), the
+  // whole batch was treated as new and blindly appended, re-storing every
+  // assistant row that was already persisted. Long sessions accumulated
+  // thousands of duplicate pairs this way. F1 (content-level idempotency in
+  // ingestSingle) must drop the re-appended assistant rows even when the
+  // batch-level dedup decides to bail.
+  it("afterTurn drops duplicate assistant rows when batch dedup bails on prefix mismatch", async () => {
+    const engine = createEngine();
+    const sessionId = "long-session-replay-dup";
+
+    await engine.afterTurn({
+      sessionId,
+      sessionFile: createSessionFilePath("long-session-replay-dup-seed"),
+      messages: [
+        makeMessage({ role: "user", content: "question 1" }),
+        makeMessage({ role: "assistant", content: "answer 1" }),
+        makeMessage({ role: "user", content: "question 2" }),
+        makeMessage({ role: "assistant", content: "answer 2" }),
+      ],
+      prePromptMessageCount: 0,
+      tokenBudget: 4096,
+    });
+
+    // Replay the stored transcript with a whitespace drift on message 0 so
+    // the prefix-equality check in deduplicateAfterTurnBatch fails and the
+    // whole batch is treated as new. Without F1 this doubles every row.
+    await engine.afterTurn({
+      sessionId,
+      sessionFile: createSessionFilePath("long-session-replay-dup-replay"),
+      messages: [
+        makeMessage({ role: "user", content: "question 1 " }),
+        makeMessage({ role: "assistant", content: "answer 1" }),
+        makeMessage({ role: "user", content: "question 2" }),
+        makeMessage({ role: "assistant", content: "answer 2" }),
+        makeMessage({ role: "user", content: "question 3" }),
+        makeMessage({ role: "assistant", content: "answer 3" }),
+      ],
+      prePromptMessageCount: 4,
+      tokenBudget: 4096,
+    });
+
+    const conversation = await engine
+      .getConversationStore()
+      .getConversationBySessionId(sessionId);
+    expect(conversation).not.toBeNull();
+
+    const stored = await engine
+      .getConversationStore()
+      .getMessages(conversation!.conversationId);
+    const assistantContents = stored
+      .filter((m) => m.role === "assistant")
+      .map((m) => m.content);
+    expect(assistantContents.filter((c) => c === "answer 1")).toHaveLength(1);
+    expect(assistantContents.filter((c) => c === "answer 2")).toHaveLength(1);
+    expect(assistantContents).toContain("answer 3");
   });
 
   it("afterTurn runs proactive threshold compaction when tokenBudget is provided", async () => {
