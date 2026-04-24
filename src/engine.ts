@@ -942,6 +942,8 @@ function messageIdentity(role: string, content: string): string {
   return `${role}\u0000${content}`;
 }
 
+const ASSISTANT_IDEMPOTENCY_RECENT_WINDOW = 8;
+
 // ── LcmContextEngine ────────────────────────────────────────────────────────
 
 export class LcmContextEngine implements ContextEngine {
@@ -2162,23 +2164,27 @@ export class LcmContextEngine implements ContextEngine {
       }
     }
 
+    // Determine next sequence number
+    const maxSeq = await this.conversationStore.getMaxSeq(conversationId);
+
     // Content-level idempotency backstop (upstream issue #23). Acts after
     // deduplicateAfterTurnBatch when that path bails via any of its
-    // prefix-mismatch branches. Scoped to non-empty assistant rows:
-    // - user "ok"/"yes" can legitimately repeat
-    // - tool/toolResult rows normalize their stored content to "" (the
-    //   structure lives in message_parts), so (role, content) identity
-    //   would false-positive every new tool call
-    // F3 above already drops empty-content assistant rows, which were the
-    // dominant duplicate profile (72x on seq 137 in the incident).
-    if (stored.role === "assistant" && stored.content.length > 0) {
-      if (await this.conversationStore.hasMessage(conversationId, stored.role, stored.content)) {
+    // prefix-mismatch branches. Keep the check scoped to the recent tail so
+    // older legitimate repeated assistant replies can still be stored.
+    if (stored.role === "assistant" && stored.content.length > 0 && maxSeq > 0) {
+      const recentMessages = await this.conversationStore.getMessages(conversationId, {
+        afterSeq: Math.max(0, maxSeq - ASSISTANT_IDEMPOTENCY_RECENT_WINDOW),
+      });
+      const incomingIdentity = messageIdentity(stored.role, stored.content);
+      if (
+        recentMessages.some(
+          (message) => messageIdentity(message.role, message.content) === incomingIdentity,
+        )
+      ) {
         return { ingested: false };
       }
     }
 
-    // Determine next sequence number
-    const maxSeq = await this.conversationStore.getMaxSeq(conversationId);
     const seq = maxSeq + 1;
 
     // Persist the message

@@ -2941,7 +2941,7 @@ describe("LcmContextEngine fidelity and token budget", () => {
   // thousands of duplicate pairs this way. F1 (content-level idempotency in
   // ingestSingle) must drop the re-appended assistant rows even when the
   // batch-level dedup decides to bail.
-  it("afterTurn drops duplicate assistant rows when batch dedup bails on prefix mismatch", async () => {
+  it("afterTurn full-batch replay drops duplicate assistant rows when batch dedup bails", async () => {
     const engine = createEngine();
     const sessionId = "long-session-replay-dup";
 
@@ -2958,9 +2958,10 @@ describe("LcmContextEngine fidelity and token budget", () => {
       tokenBudget: 4096,
     });
 
-    // Replay the stored transcript with a whitespace drift on message 0 so
-    // the prefix-equality check in deduplicateAfterTurnBatch fails and the
-    // whole batch is treated as new. Without F1 this doubles every row.
+    // Replay the full transcript with a whitespace drift on message 0 so the
+    // prefix-equality check in deduplicateAfterTurnBatch fails and the whole
+    // batch is treated as new. Without F1 this re-appends the existing
+    // assistant rows under new sequence numbers.
     await engine.afterTurn({
       sessionId,
       sessionFile: createSessionFilePath("long-session-replay-dup-replay"),
@@ -2972,7 +2973,7 @@ describe("LcmContextEngine fidelity and token budget", () => {
         makeMessage({ role: "user", content: "question 3" }),
         makeMessage({ role: "assistant", content: "answer 3" }),
       ],
-      prePromptMessageCount: 4,
+      prePromptMessageCount: 0,
       tokenBudget: 4096,
     });
 
@@ -2990,6 +2991,46 @@ describe("LcmContextEngine fidelity and token budget", () => {
     expect(assistantContents.filter((c) => c === "answer 1")).toHaveLength(1);
     expect(assistantContents.filter((c) => c === "answer 2")).toHaveLength(1);
     expect(assistantContents).toContain("answer 3");
+  });
+
+  it("allows legitimate repeated assistant replies once they fall outside the recent dedup window", async () => {
+    const engine = createEngine();
+    const sessionId = "assistant-repeat-outside-window";
+
+    await engine.ingestBatch({
+      sessionId,
+      messages: [
+        makeMessage({ role: "user", content: "question 0" }),
+        makeMessage({ role: "assistant", content: "same answer" }),
+        makeMessage({ role: "user", content: "question 1" }),
+        makeMessage({ role: "assistant", content: "answer 1" }),
+        makeMessage({ role: "user", content: "question 2" }),
+        makeMessage({ role: "assistant", content: "answer 2" }),
+        makeMessage({ role: "user", content: "question 3" }),
+        makeMessage({ role: "assistant", content: "answer 3" }),
+        makeMessage({ role: "user", content: "question 4" }),
+        makeMessage({ role: "assistant", content: "answer 4" }),
+        makeMessage({ role: "user", content: "question 5" }),
+      ],
+    });
+
+    const result = await engine.ingest({
+      sessionId,
+      message: makeMessage({ role: "assistant", content: "same answer" }),
+    });
+    expect(result).toEqual({ ingested: true });
+
+    const conversation = await engine
+      .getConversationStore()
+      .getConversationBySessionId(sessionId);
+    expect(conversation).not.toBeNull();
+
+    const stored = await engine
+      .getConversationStore()
+      .getMessages(conversation!.conversationId);
+    expect(
+      stored.filter((message) => message.role === "assistant" && message.content === "same answer"),
+    ).toHaveLength(2);
   });
 
   it("afterTurn runs proactive threshold compaction when tokenBudget is provided", async () => {
