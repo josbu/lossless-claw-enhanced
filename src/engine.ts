@@ -942,6 +942,8 @@ function messageIdentity(role: string, content: string): string {
   return `${role}\u0000${content}`;
 }
 
+const ASSISTANT_IDEMPOTENCY_RECENT_WINDOW = 8;
+
 // ── LcmContextEngine ────────────────────────────────────────────────────────
 
 export class LcmContextEngine implements ContextEngine {
@@ -2107,25 +2109,21 @@ export class LcmContextEngine implements ContextEngine {
       return { ingested: false };
     }
 
-    // Skip assistant messages that failed with an error and have no useful content.
-    // These occur when an API call returns a 500 or similar transient error.
-    // Ingesting them pollutes the LCM database: on retry, the error messages
-    // accumulate and get assembled into context, creating a positive feedback
-    // loop where each retry sends an increasingly large (and malformed) payload
-    // that continues to fail.
+    // Skip assistant messages that have no useful content regardless of
+    // stopReason. Upstream issue #23: the original guard only filtered
+    // stopReason error/aborted, letting undefined / stream-interrupted
+    // empties through. One such row (seq 137) ended up duplicated 72x
+    // in a single session because nothing downstream caught it either.
     if (message.role === "assistant") {
       const topLevel = message as unknown as Record<string, unknown>;
-      const stopReason = topLevel.stopReason;
-      if (stopReason === "error" || stopReason === "aborted") {
-        const content = topLevel.content;
-        const isEmpty =
-          content === undefined ||
-          content === null ||
-          content === "" ||
-          (Array.isArray(content) && content.length === 0);
-        if (isEmpty) {
-          return { ingested: false };
-        }
+      const content = topLevel.content;
+      const isEmpty =
+        content === undefined ||
+        content === null ||
+        content === "" ||
+        (Array.isArray(content) && content.length === 0);
+      if (isEmpty) {
+        return { ingested: false };
       }
     }
 
@@ -2168,6 +2166,25 @@ export class LcmContextEngine implements ContextEngine {
 
     // Determine next sequence number
     const maxSeq = await this.conversationStore.getMaxSeq(conversationId);
+
+    // Content-level idempotency backstop (upstream issue #23). Acts after
+    // deduplicateAfterTurnBatch when that path bails via any of its
+    // prefix-mismatch branches. Keep the check scoped to the recent tail so
+    // older legitimate repeated assistant replies can still be stored.
+    if (stored.role === "assistant" && stored.content.length > 0 && maxSeq > 0) {
+      const recentMessages = await this.conversationStore.getMessages(conversationId, {
+        afterSeq: Math.max(0, maxSeq - ASSISTANT_IDEMPOTENCY_RECENT_WINDOW),
+      });
+      const incomingIdentity = messageIdentity(stored.role, stored.content);
+      if (
+        recentMessages.some(
+          (message) => messageIdentity(message.role, message.content) === incomingIdentity,
+        )
+      ) {
+        return { ingested: false };
+      }
+    }
+
     const seq = maxSeq + 1;
 
     // Persist the message
